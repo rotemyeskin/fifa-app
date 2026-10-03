@@ -3,13 +3,15 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { SessionView } from '@/components/session/SessionView'
 import { buttonVariants } from '@/components/ui/button'
-import { getLatestSession, getPlayers, getSessionMatches } from '@/lib/data'
+import { getLatestSession, getMatches, getPlayers } from '@/lib/data'
 import { dayKey, todayKey } from '@/lib/dates'
+import { sortAsc } from '@/lib/match'
+import { carriedMatches } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 export default async function SessionPage() {
-  const [players, latest] = await Promise.all([getPlayers(), getLatestSession()])
+  const [players, latest, matches] = await Promise.all([getPlayers(), getLatestSession(), getMatches()])
 
   if (players.length < 2) {
     return (
@@ -28,11 +30,14 @@ export default async function SessionPage() {
     )
   }
 
-  const latestMatches = latest ? await getSessionMatches(latest.id) : []
+  const today = todayKey()
+  const todayMatches = sortAsc(matches.filter((m) => dayKey(m.played_at) === today))
+  const latestMatches = latest ? sortAsc(matches.filter((m) => m.session_id === latest.id)) : []
+  const carried = latest ? carriedMatches(latest, matches) : []
   const active = latest?.status === 'active' ? latest : null
   const finishedToday =
-    latest?.status === 'completed' && latest.completed_at && dayKey(latest.completed_at) === todayKey()
-      ? { session: latest, matches: latestMatches }
+    latest?.status === 'completed' && latest.completed_at && dayKey(latest.completed_at) === today
+      ? { session: latest, matches: [...carried, ...latestMatches] }
       : null
 
   return (
@@ -46,6 +51,8 @@ export default async function SessionPage() {
         players={players}
         session={active}
         sessionMatches={active ? latestMatches : []}
+        carried={active ? carried : []}
+        todayMatches={todayMatches}
         finished={finishedToday}
       />
     </>

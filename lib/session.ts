@@ -1,4 +1,5 @@
-import { involves, sortAsc, winnerOf } from './match'
+import { dayKey } from './dates'
+import { sortAsc } from './match'
 import type { Match, Session } from './types'
 
 export type Pair = [string, string]
@@ -19,52 +20,111 @@ export function totalSessionMatches(playerCount: number): number {
   return (playerCount * (playerCount - 1)) / 2
 }
 
-export function remainingPairs(session: Session, sessionMatches: Match[]): Pair[] {
-  const played = new Set(sessionMatches.map((m) => pairKey(m.home_player_id, m.away_player_id)))
-  return allPairs(session.player_ids).filter(([a, b]) => !played.has(pairKey(a, b)))
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]
 }
 
-/**
- * Next suggested pairing. The first match is the drawn/selected one.
- * After that, the winner of the last match stays on and faces a player who rested.
- * Ties are broken by who has played fewer games in the session.
- */
-export function suggestNextPair(session: Session, sessionMatches: Match[]): Pair | null {
-  const remaining = remainingPairs(session, sessionMatches)
-  if (remaining.length === 0) return null
+// ============ Round-robin state ============
 
-  if (sessionMatches.length === 0) {
-    const firstKey = pairKey(session.first_home_id, session.first_away_id)
-    if (remaining.some(([a, b]) => pairKey(a, b) === firstKey)) {
-      return [session.first_home_id, session.first_away_id]
+export interface RoundState {
+  pairs: Pair[]
+  /** Pairs that have not met yet in the current (lowest) round. */
+  remaining: Pair[]
+  /** Games each player has played in the current round. */
+  gamesInRound: Map<string, number>
+  /** All pairs have met the same number of times: a brand new round starts. */
+  fresh: boolean
+}
+
+/** Round-robin progress among `ids`, using only matches where both players are in `ids`. */
+export function roundState(ids: string[], matches: Match[]): RoundState {
+  const pairs = allPairs(ids)
+  const counts = new Map(pairs.map(([a, b]) => [pairKey(a, b), 0]))
+  for (const m of matches) {
+    const key = pairKey(m.home_player_id, m.away_player_id)
+    if (counts.has(key)) counts.set(key, counts.get(key)! + 1)
+  }
+  const min = pairs.length ? Math.min(...counts.values()) : 0
+  const remaining = pairs.filter(([a, b]) => counts.get(pairKey(a, b)) === min)
+
+  const gamesInRound = new Map(ids.map((id) => [id, 0]))
+  for (const [a, b] of pairs) {
+    if (counts.get(pairKey(a, b))! > min) {
+      gamesInRound.set(a, gamesInRound.get(a)! + 1)
+      gamesInRound.set(b, gamesInRound.get(b)! + 1)
     }
   }
 
-  const ordered = sortAsc(sessionMatches)
-  const last = ordered[ordered.length - 1]
-  if (!last) return remaining[0]
-
-  const lastIds = [last.home_player_id, last.away_player_id]
-  const winner = winnerOf(last)
-  const gamesPlayed = (id: string) => ordered.filter((m) => involves(m, id)).length
-
-  const scored = remaining.map((pair) => {
-    const rested = pair.filter((id) => !lastIds.includes(id)).length
-    let score = 0
-    if (winner && pair.includes(winner) && rested === 1) score = 3
-    else if (!winner && rested === 1) score = 2
-    else if (rested === 2) score = 1
-    const load = gamesPlayed(pair[0]) + gamesPlayed(pair[1])
-    return { pair, score, load }
-  })
-
-  scored.sort((a, b) => b.score - a.score || a.load - b.load)
-  const [a, b] = scored[0].pair
-  // The player continuing from the last match is listed first.
-  return lastIds.includes(a) ? [a, b] : [b, a]
+  return { pairs, remaining, gamesInRound, fresh: remaining.length === pairs.length }
 }
 
-export function randomPair(ids: string[]): Pair {
-  const shuffled = [...ids].sort(() => Math.random() - 0.5)
-  return [shuffled[0], shuffled[1]]
+// ============ Smart draw ============
+
+export type DrawReason = 'open' | 'balance' | 'last'
+
+export interface DrawOptions {
+  /** Pairs the draw may land on. */
+  candidates: Pair[]
+  /** 'open' = new round, anyone vs anyone. Otherwise the system restricts the draw. */
+  reason: DrawReason
+  /** Players with the fewest games in the current round; they must play next. */
+  priorityIds: string[]
+}
+
+/**
+ * Which matchups the next draw may produce.
+ * A brand new round allows any pair. Otherwise only pairs that have not met in this round
+ * and include a player with the fewest games in the round.
+ */
+export function drawOptions(state: RoundState): DrawOptions {
+  if (state.fresh) return { candidates: state.pairs, reason: 'open', priorityIds: [] }
+
+  const waiting = [...new Set(state.remaining.flat())]
+  const fewest = Math.min(...waiting.map((id) => state.gamesInRound.get(id) ?? 0))
+  const priorityIds = waiting.filter((id) => (state.gamesInRound.get(id) ?? 0) === fewest)
+  const candidates = state.remaining.filter((pair) => pair.some((id) => priorityIds.includes(id)))
+
+  return { candidates, reason: candidates.length === 1 ? 'last' : 'balance', priorityIds }
+}
+
+/** Random pair from the allowed candidates, with the priority player listed first. */
+export function drawPair(options: DrawOptions): Pair {
+  const [a, b] = pickRandom(options.candidates)
+  return options.priorityIds.includes(b) && !options.priorityIds.includes(a) ? [b, a] : [a, b]
+}
+
+// ============ Sessions ============
+
+/**
+ * Matches played earlier the same day, before this session started, that belong to a round
+ * that was still incomplete. The session continues that round instead of starting over.
+ */
+export function carriedMatches(session: Session, matches: Match[]): Match[] {
+  const day = dayKey(session.started_at)
+  const ids = new Set(session.player_ids)
+  const before = sortAsc(
+    matches.filter(
+      (m) =>
+        m.session_id !== session.id &&
+        ids.has(m.home_player_id) &&
+        ids.has(m.away_player_id) &&
+        dayKey(m.played_at) === day &&
+        m.played_at < session.started_at,
+    ),
+  )
+  const state = roundState(session.player_ids, before)
+  if (state.fresh) return []
+  const open = new Set(state.remaining.map(([a, b]) => pairKey(a, b)))
+  const latest = new Map<string, Match>()
+  for (const m of before) {
+    const key = pairKey(m.home_player_id, m.away_player_id)
+    if (!open.has(key)) latest.set(key, m)
+  }
+  return sortAsc([...latest.values()])
+}
+
+/** Pairs still to be played for the session's round-robin to be complete. */
+export function sessionRemaining(session: Session, sessionMatches: Match[], carried: Match[]): Pair[] {
+  const played = new Set([...carried, ...sessionMatches].map((m) => pairKey(m.home_player_id, m.away_player_id)))
+  return allPairs(session.player_ids).filter(([a, b]) => !played.has(pairKey(a, b)))
 }

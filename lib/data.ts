@@ -65,13 +65,3 @@ export async function getActiveSession(): Promise<Session | null> {
   if (error) throw new Error(error.message)
   return (data as Session) ?? null
 }
-
-export async function getSessionMatches(sessionId: string): Promise<Match[]> {
-  const { data, error } = await getDb()
-    .from('matches')
-    .select('*')
-    .eq('session_id', sessionId)
-    .order('played_at')
-  if (error) throw new Error(error.message)
-  return ((data ?? []) as MatchRow[]).map(normalizeMatch)
-}

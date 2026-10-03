@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { playedAtForDay, todayKey } from '@/lib/dates'
-import { getSessionMatches } from '@/lib/data'
-import { totalSessionMatches } from '@/lib/session'
+import { getMatches } from '@/lib/data'
+import { carriedMatches, sessionRemaining } from '@/lib/session'
 import { getDb } from '@/lib/supabase'
 import type { ActionResult, MatchInput, PlayerInput, Session } from '@/lib/types'
 import { validateMatch, validatePlayer } from '@/lib/validation'
@@ -38,8 +38,9 @@ async function completeSessionIfDone(sessionId: string) {
   if (error || !session) return
   const s = session as Session
   if (s.status !== 'active') return
-  const played = await getSessionMatches(sessionId)
-  if (played.length >= totalSessionMatches(s.player_ids.length)) {
+  const all = await getMatches()
+  const sessionMatches = all.filter((m) => m.session_id === sessionId)
+  if (sessionRemaining(s, sessionMatches, carriedMatches(s, all)).length === 0) {
     await db
       .from('sessions')
       .update({ status: 'completed', completed_at: new Date().toISOString() })

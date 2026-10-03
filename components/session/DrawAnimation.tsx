@@ -1,47 +1,52 @@
 'use client'
 
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Dices } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { PlayerAvatar } from '@/components/common/PlayerAvatar'
 import { Button } from '@/components/ui/button'
-import { randomPair, type Pair } from '@/lib/session'
+import { drawPair, type DrawOptions, type Pair } from '@/lib/session'
 import type { Player } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { cn, UNKNOWN_PLAYER } from '@/lib/utils'
 
-/** Slot-machine style draw for the first match. */
+/** Slot-machine style draw. Only lands on the pairs allowed by `options`. */
 export function DrawAnimation({
-  participants,
+  players,
+  options,
   result,
   onResult,
 }: {
-  participants: Player[]
+  players: Player[]
+  options: DrawOptions
   result: Pair | null
   onResult: (pair: Pair) => void
 }) {
   const [rolling, setRolling] = useState(false)
   const [shown, setShown] = useState<Pair | null>(result)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const byId = new Map(participants.map((p) => [p.id, p]))
-  const ids = participants.map((p) => p.id)
+  const byId = new Map(players.map((p) => [p.id, p]))
+  const canDraw = options.candidates.length > 0
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
 
   useEffect(() => setShown(result), [result])
 
   function roll() {
-    if (ids.length < 2) return
+    if (!canDraw) return
     setRolling(true)
     let delay = 55
     const tick = () => {
-      setShown(randomPair(ids))
+      setShown(drawPair(options))
       delay *= 1.13
       if (delay < 420) {
         timer.current = setTimeout(tick, delay)
       } else {
-        const final = randomPair(ids)
+        const final = drawPair(options)
         setShown(final)
         setRolling(false)
         onResult(final)
@@ -50,11 +55,11 @@ export function DrawAnimation({
     tick()
   }
 
-  const home = shown ? byId.get(shown[0]) : undefined
-  const away = shown ? byId.get(shown[1]) : undefined
+  const home = shown ? byId.get(shown[0]) ?? UNKNOWN_PLAYER : null
+  const away = shown ? byId.get(shown[1]) ?? UNKNOWN_PLAYER : null
 
   return (
-    <div className="flex flex-col items-center gap-5">
+    <div className="flex flex-col items-center gap-4">
       <div
         className={cn(
           'pitch-lines relative flex h-40 w-full items-center justify-around overflow-hidden rounded-2xl border bg-bg/60 transition-colors',
@@ -78,9 +83,9 @@ export function DrawAnimation({
         )}
       </div>
 
-      <Button variant="violet" size="lg" className="w-full" onClick={roll} disabled={rolling || ids.length < 2}>
+      <Button variant="violet" size="lg" className="w-full" onClick={roll} disabled={rolling || !canDraw}>
         <Dices className={cn('h-6 w-6', rolling && 'animate-spin')} />
-        {rolling ? 'מגרילים...' : result ? 'הגרלה מחדש' : 'הגרילו מי פותח!'}
+        {rolling ? 'מגרילים...' : result ? 'הגרלה מחדש' : 'הגרילו את המשחק!'}
       </Button>
     </div>
   )
@@ -88,18 +93,14 @@ export function DrawAnimation({
 
 function Slot({ player, done }: { player: Player; done: boolean }) {
   return (
-    <AnimatePresence mode="popLayout">
-      <motion.div
-        key={player.id}
-        initial={{ y: -40, opacity: 0, filter: 'blur(4px)' }}
-        animate={{ y: 0, opacity: 1, filter: 'blur(0px)', scale: done ? [1, 1.15, 1] : 1 }}
-        exit={{ y: 40, opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="flex flex-col items-center gap-2"
-      >
-        <PlayerAvatar player={player} size="lg" glow={done} />
-        <span className="text-sm font-bold">{player.name}</span>
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      initial={{ y: -40, opacity: 0, filter: 'blur(4px)' }}
+      animate={{ y: 0, opacity: 1, filter: 'blur(0px)', scale: done ? [1, 1.15, 1] : 1 }}
+      transition={{ duration: 0.18 }}
+      className="flex flex-col items-center gap-2"
+    >
+      <PlayerAvatar player={player} size="lg" glow={done} />
+      <span className="text-sm font-bold">{player.name}</span>
+    </motion.div>
   )
 }
