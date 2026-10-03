@@ -6,7 +6,6 @@ import { HeadlinesBanner } from '@/components/home/HeadlinesBanner'
 import { MomentumCard, type MomentumEntry } from '@/components/home/MomentumCard'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { MatchCard } from '@/components/match/MatchCard'
-import { LeaderHero } from '@/components/standings/LeaderHero'
 import { StandingsTable } from '@/components/standings/StandingsTable'
 import { YearSelect } from '@/components/standings/YearSelect'
 import { buttonVariants } from '@/components/ui/button'
@@ -15,7 +14,7 @@ import { getMatches, getPlayers } from '@/lib/data'
 import { currentYear, yearOf } from '@/lib/dates'
 import { computeHeadlines } from '@/lib/headlines'
 import { sortAsc, viewFor } from '@/lib/match'
-import { championOf, computeStandings } from '@/lib/standings'
+import { computeStandings } from '@/lib/standings'
 import { computeMomentum } from '@/lib/streaks'
 import { playerMap } from '@/lib/utils'
 
@@ -52,10 +51,13 @@ export default async function AnnualTablePage({
   const year = years.includes(Number(yearParam)) ? Number(yearParam) : thisYear
   const yearMatches = matches.filter((m) => yearOf(m.played_at) === year)
   const rows = computeStandings(players, yearMatches)
-  const leader = championOf(rows)
   const byId = playerMap(players)
   const isCurrent = year === thisYear
   const headlines = isCurrent ? computeHeadlines(players, matches, yearMatches) : []
+  const maxPlayed = Math.max(0, ...rows.map((r) => r.played))
+  const missing = rows
+    .filter((r) => r.played < maxPlayed)
+    .map((r) => ({ name: r.player.name, count: maxPlayed - r.played }))
 
   const sortedAll = sortAsc(matches)
   const momentum: MomentumEntry[] = players
@@ -89,16 +91,16 @@ export default async function AnnualTablePage({
       <div className="space-y-4">
         <HeadlinesBanner headlines={headlines} />
 
-        {leader && (
-          <LeaderHero
-            row={leader}
-            title={isCurrent ? 'מוביל העונה' : `אלוף ${year}`}
-            emoji={isCurrent ? '👑' : '🏆'}
-          />
-        )}
-
         <Card className="p-3">
-          <StandingsTable rows={rows} />
+          <StandingsTable rows={rows} showForm={false} showMissing />
+          {missing.length > 0 && (
+            <div className="mx-1 mt-2 rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-gold">
+              ⚠️ לא כולם שיחקו אותו מספר משחקים:{' '}
+              {missing
+                .map(({ name, count }) => `ל${name} ${count === 1 ? 'חסר משחק אחד' : `חסרים ${count} משחקים`}`)
+                .join(' · ')}
+            </div>
+          )}
           <p className="mt-2 px-1 text-[11px] text-muted">
             ניצחון 3 · תיקו 1 · הפסד 0 · שוויון נשבר לפי הפרש שערים, שערי זכות ומפגשים ישירים
           </p>

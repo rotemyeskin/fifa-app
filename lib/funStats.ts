@@ -2,8 +2,6 @@ import { formatShortDay } from './dates'
 import { isDraw, loserOf, sortAsc, viewFor, winnerOf, type PlayerView } from './match'
 import { currentRun, isWin, longestRun } from './streaks'
 import type { Match, Player } from './types'
-import { formatStars } from './utils'
-
 export type StatTone = 'gold' | 'red' | 'green' | 'violet' | 'blue' | 'orange'
 
 export interface FunStat {
@@ -199,19 +197,6 @@ const theWall: Generator = (ctx) => {
   }
 }
 
-const snob: Generator = (ctx) => {
-  const top = leader(ctx, (g) => g.reduce((s, { view }) => s + view.stars, 0) / g.length, { minGames: 3 })
-  return {
-    id: 'snob',
-    emoji: '🎩',
-    title: 'הסנוב',
-    description: 'דירוג הכוכבים הממוצע הגבוה ביותר לקבוצה שנבחרה',
-    holder: top?.player ?? null,
-    value: top ? `${formatStars(Math.round(top.score * 10) / 10)} ★ בממוצע` : 'עוד אין',
-    tone: 'gold',
-  }
-}
-
 const longestStreak: Generator = (ctx) => {
   const top = leader(ctx, (g) => longestRun(g.map(({ view }) => view.outcome), isWin))
   if (!top || top.score < 2) return null
@@ -317,7 +302,6 @@ const GENERATORS: Generator[] = [
   extraTimeKing,
   goalMachine,
   theWall,
-  snob,
   nemesis,
   longestStreak,
   drawMaster,

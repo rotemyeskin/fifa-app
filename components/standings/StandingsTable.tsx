@@ -20,7 +20,17 @@ const COLUMNS = [
 
 const RANK_STYLE = ['text-gold', 'text-slate-300', 'text-amber-600']
 
-export function StandingsTable({ rows, showForm = true }: { rows: StandingRow[]; showForm?: boolean }) {
+export function StandingsTable({
+  rows,
+  showForm = true,
+  showMissing = false,
+}: {
+  rows: StandingRow[]
+  showForm?: boolean
+  /** Highlight players who played fewer games than the most active player. */
+  showMissing?: boolean
+}) {
+  const maxPlayed = Math.max(0, ...rows.map((r) => r.played))
   return (
     <div className="no-scrollbar -mx-1 overflow-x-auto">
       <table className="w-full min-w-[340px] border-separate border-spacing-y-1.5 px-1 text-center text-sm">
@@ -74,7 +84,16 @@ export function StandingsTable({ rows, showForm = true }: { rows: StandingRow[];
                       c.key === 'gd' && row.gd < 0 && 'text-danger',
                     )}
                   >
-                    {c.key === 'gd' ? signed(row.gd) : row[c.key]}
+                    {c.key === 'gd' ? (
+                      signed(row.gd)
+                    ) : c.key === 'played' && showMissing && row.played < maxPlayed ? (
+                      <span className="flex flex-col items-center leading-none" title="חסרים משחקים">
+                        <span className="font-bold text-gold">{row.played}</span>
+                        <span className="mt-0.5 text-[9px] text-gold/80">{row.played - maxPlayed}</span>
+                      </span>
+                    ) : (
+                      row[c.key]
+                    )}
                   </td>
                 ))}
                 <td className="tabular rounded-e-xl py-2 text-lg font-black text-white">{row.pts}</td>
