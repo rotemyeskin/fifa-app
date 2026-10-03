@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import { ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
 import { FormBadges } from '@/components/common/FormBadges'
 import { PlayerAvatar } from '@/components/common/PlayerAvatar'
@@ -53,10 +54,13 @@ export function StandingsTable({ rows, showForm = true }: { rows: StandingRow[];
                   {i + 1}
                 </td>
                 <td className="py-2 text-start">
-                  <Link href={`/players/${row.player.id}`} className="flex items-center gap-2">
+                  <Link href={`/players/${row.player.id}`} className="group flex items-center gap-2">
                     <PlayerAvatar player={row.player} size="sm" glow={leader} />
                     <span className="min-w-0">
-                      <span className="block truncate font-bold">{row.player.name}</span>
+                      <span className="flex items-center gap-0.5 truncate font-bold underline-offset-4 group-hover:text-neon group-hover:underline">
+                        {row.player.name}
+                        <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-neon" />
+                      </span>
                       {showForm && <FormBadges form={row.form} className="mt-0.5" />}
                     </span>
                   </Link>

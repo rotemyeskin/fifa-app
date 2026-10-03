@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { formatDayKey, todayKey } from '@/lib/dates'
 import type { MatchInput, Player } from '@/lib/types'
 import { cn, UNKNOWN_PLAYER } from '@/lib/utils'
+import { DateField } from './DateField'
 import { PlayerPicker } from './PlayerPicker'
 import { ScoreStepper } from './ScoreStepper'
 import { StarRating } from './StarRating'
@@ -43,7 +44,6 @@ export function MatchForm({ players, initial, matchId, sessionId = null, lockPla
   const [awayStars, setAwayStars] = useState(initial?.away_stars ?? 4.5)
   const [extraTime, setExtraTime] = useState(initial?.extra_time ?? false)
   const [day, setDay] = useState(initialDay)
-  const [showDate, setShowDate] = useState(false)
 
   const byId = new Map(players.map((p) => [p.id, p]))
   const home = byId.get(homeId) ?? UNKNOWN_PLAYER
@@ -172,25 +172,11 @@ export function MatchForm({ players, initial, matchId, sessionId = null, lockPla
         </label>
       </Card>
 
-      <Card className="py-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-sm">
-            <CalendarDays className="h-5 w-5 text-muted" />
-            {day === todayKey() ? 'היום' : formatDayKey(day)}
-          </span>
-          <Button variant="ghost" size="sm" onClick={() => setShowDate((s) => !s)}>
-            {showDate ? 'סגור' : 'שינוי תאריך'}
-          </Button>
-        </div>
-        {showDate && (
-          <Input
-            type="date"
-            className="mt-3"
-            value={day}
-            max={todayKey()}
-            onChange={(e) => e.target.value && setDay(e.target.value)}
-          />
-        )}
+      <Card>
+        <CardTitle icon={<CalendarDays className="h-4 w-4" />}>
+          תאריך · {day === todayKey() ? 'היום' : formatDayKey(day)}
+        </CardTitle>
+        <DateField value={day} onChange={setDay} max={todayKey()} />
       </Card>
 
       <Button size="lg" className="w-full" disabled={pending || !homeId || !awayId} onClick={submit}>

@@ -12,18 +12,25 @@ export function MatchCard({
   byId,
   editable,
   showDate,
+  badge,
 }: {
   match: Match
   byId: Map<string, Player>
   editable?: boolean
   showDate?: boolean
+  badge?: string
 }) {
   const home = byId.get(match.home_player_id) ?? UNKNOWN_PLAYER
   const away = byId.get(match.away_player_id) ?? UNKNOWN_PLAYER
   const winner = winnerOf(match)
 
   return (
-    <div className="relative rounded-2xl border border-line bg-card/80 p-3">
+    <div className={cn('relative rounded-2xl border border-line bg-card/80 p-3', badge && 'border-dashed opacity-75')}>
+      {badge && (
+        <span className="absolute right-2 top-2 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold">
+          {badge}
+        </span>
+      )}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <Side player={home} team={match.home_team} stars={match.home_stars} state={stateOf(winner, home.id)} />
         <div className="flex flex-col items-center">
@@ -75,11 +82,14 @@ function Side({
   state: SideState
 }) {
   return (
-    <div className={cn('flex min-w-0 flex-col items-center gap-1 text-center', state === 'loss' && 'opacity-60')}>
+    <Link
+      href={`/players/${player.id}`}
+      className={cn('group flex min-w-0 flex-col items-center gap-1 text-center', state === 'loss' && 'opacity-60')}
+    >
       <PlayerAvatar player={player} size="sm" glow={state === 'win'} />
-      <span className="max-w-full truncate text-sm font-bold">{player.name}</span>
+      <span className="max-w-full truncate text-sm font-bold group-hover:text-neon">{player.name}</span>
       {team && <span className="max-w-full truncate text-[11px] text-muted">{team}</span>}
       <Stars value={stars} size={10} />
-    </div>
+    </Link>
   )
 }

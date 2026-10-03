@@ -1,4 +1,7 @@
-import { sortAsc, viewFor, type Outcome } from './match'
+import { yearOf } from './dates'
+import { POINTS, sortAsc, viewFor, type Outcome, type PlayerView } from './match'
+import { computeStandings } from './standings'
+import { computeMomentum, currentRun, isLoss, isUnbeaten, isWin, longestRun, type Momentum } from './streaks'
 import type { Match, Player } from './types'
 
 export interface HeadToHead {
@@ -9,6 +12,23 @@ export interface HeadToHead {
   l: number
   gf: number
   ga: number
+  pts: number
+  form: Outcome[]
+  biggestWin: Match | null
+  biggestLoss: Match | null
+  lastMatch: Match | null
+}
+
+export interface SeasonLine {
+  year: number
+  rank: number
+  played: number
+  w: number
+  d: number
+  l: number
+  gf: number
+  ga: number
+  pts: number
 }
 
 export interface PlayerSummary {
@@ -18,105 +38,136 @@ export interface PlayerSummary {
   l: number
   gf: number
   ga: number
+  pts: number
   winRate: number
   avgStars: number
   avgOppStars: number
   form: Outcome[]
+  momentum: Momentum | null
   currentStreak: { outcome: Outcome; length: number } | null
+  currentUnbeaten: number
   longestWinStreak: number
+  longestUnbeaten: number
+  longestLossStreak: number
+  cleanSheets: number
+  blanks: number
+  underdogWins: number
   extraTime: { played: number; w: number; d: number; l: number }
   favoriteTeam: { team: string; count: number } | null
   biggestWin: Match | null
+  biggestLoss: Match | null
+  mostGoals: Match | null
   headToHead: HeadToHead[]
+  seasons: SeasonLine[]
+}
+
+type Game = { match: Match; view: PlayerView }
+
+function biggestBy(games: Game[], pick: (g: Game) => number): Match | null {
+  let best: Game | null = null
+  for (const g of games) {
+    const value = pick(g)
+    if (value > 0 && (!best || value > pick(best) || (value === pick(best) && g.view.gf > best.view.gf))) best = g
+  }
+  return best?.match ?? null
 }
 
 export function summarizePlayer(playerId: string, players: Player[], matches: Match[]): PlayerSummary {
-  const games = sortAsc(matches).flatMap((match) => {
+  const games: Game[] = sortAsc(matches).flatMap((match) => {
     const view = viewFor(match, playerId)
     return view ? [{ match, view }] : []
   })
+  const outcomes = games.map((g) => g.view.outcome)
+  const count = (fn: (g: Game) => boolean) => games.filter(fn).length
 
-  const s: PlayerSummary = {
-    played: games.length,
-    w: 0,
-    d: 0,
-    l: 0,
-    gf: 0,
-    ga: 0,
-    winRate: 0,
-    avgStars: 0,
-    avgOppStars: 0,
-    form: games.slice(-5).map((g) => g.view.outcome),
-    currentStreak: null,
-    longestWinStreak: 0,
-    extraTime: { played: 0, w: 0, d: 0, l: 0 },
-    favoriteTeam: null,
-    biggestWin: null,
-    headToHead: [],
-  }
+  const w = count((g) => g.view.outcome === 'W')
+  const d = count((g) => g.view.outcome === 'D')
+  const l = games.length - w - d
+  const sum = (fn: (g: Game) => number) => games.reduce((s, g) => s + fn(g), 0)
+  const n = games.length || 1
 
+  const lastOutcome = outcomes[outcomes.length - 1]
   const teams = new Map<string, number>()
-  const h2h = new Map<string, HeadToHead>()
-  let run = 0
-  let biggestMargin = 0
-  let starsTotal = 0
-  let oppStarsTotal = 0
-
-  for (const { match, view } of games) {
-    s.gf += view.gf
-    s.ga += view.ga
-    starsTotal += view.stars
-    oppStarsTotal += view.oppStars
-    if (view.outcome === 'W') s.w++
-    else if (view.outcome === 'D') s.d++
-    else s.l++
-
-    run = view.outcome === 'W' ? run + 1 : 0
-    s.longestWinStreak = Math.max(s.longestWinStreak, run)
-
-    if (match.extra_time) {
-      s.extraTime.played++
-      if (view.outcome === 'W') s.extraTime.w++
-      else if (view.outcome === 'D') s.extraTime.d++
-      else s.extraTime.l++
-    }
-
-    const margin = view.gf - view.ga
-    if (margin > biggestMargin) {
-      biggestMargin = margin
-      s.biggestWin = match
-    }
-
+  for (const { view } of games) {
     const team = view.team?.trim()
     if (team) teams.set(team, (teams.get(team) ?? 0) + 1)
-
-    const opponent = players.find((p) => p.id === view.opponentId)
-    if (opponent) {
-      const row = h2h.get(opponent.id) ?? { opponent, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 }
-      row.played++
-      row.gf += view.gf
-      row.ga += view.ga
-      if (view.outcome === 'W') row.w++
-      else if (view.outcome === 'D') row.d++
-      else row.l++
-      h2h.set(opponent.id, row)
-    }
   }
+  let favoriteTeam: PlayerSummary['favoriteTeam'] = null
+  for (const [team, c] of teams) if (!favoriteTeam || c > favoriteTeam.count) favoriteTeam = { team, count: c }
 
-  if (games.length > 0) {
-    s.winRate = s.w / games.length
-    s.avgStars = starsTotal / games.length
-    s.avgOppStars = oppStarsTotal / games.length
-    const last = games[games.length - 1].view.outcome
-    let length = 0
-    for (let i = games.length - 1; i >= 0 && games[i].view.outcome === last; i--) length++
-    s.currentStreak = { outcome: last, length }
+  const etGames = games.filter((g) => g.match.extra_time)
+
+  return {
+    played: games.length,
+    w,
+    d,
+    l,
+    gf: sum((g) => g.view.gf),
+    ga: sum((g) => g.view.ga),
+    pts: w * 3 + d,
+    winRate: games.length ? w / games.length : 0,
+    avgStars: sum((g) => g.view.stars) / n,
+    avgOppStars: sum((g) => g.view.oppStars) / n,
+    form: outcomes.slice(-5),
+    momentum: computeMomentum(outcomes),
+    currentStreak: lastOutcome
+      ? { outcome: lastOutcome, length: currentRun(outcomes, (o) => o === lastOutcome) }
+      : null,
+    currentUnbeaten: currentRun(outcomes, isUnbeaten),
+    longestWinStreak: longestRun(outcomes, isWin),
+    longestUnbeaten: longestRun(outcomes, isUnbeaten),
+    longestLossStreak: longestRun(outcomes, isLoss),
+    cleanSheets: count((g) => g.view.ga === 0),
+    blanks: count((g) => g.view.gf === 0),
+    underdogWins: count((g) => g.view.outcome === 'W' && g.view.stars < g.view.oppStars),
+    extraTime: {
+      played: etGames.length,
+      w: etGames.filter((g) => g.view.outcome === 'W').length,
+      d: etGames.filter((g) => g.view.outcome === 'D').length,
+      l: etGames.filter((g) => g.view.outcome === 'L').length,
+    },
+    favoriteTeam,
+    biggestWin: biggestBy(games, (g) => g.view.gf - g.view.ga),
+    biggestLoss: biggestBy(games, (g) => g.view.ga - g.view.gf),
+    mostGoals: biggestBy(games, (g) => g.view.gf),
+    headToHead: headToHead(games, players),
+    seasons: seasons(playerId, players, matches),
   }
+}
 
-  for (const [team, n] of teams) {
-    if (!s.favoriteTeam || n > s.favoriteTeam.count) s.favoriteTeam = { team, count: n }
+function headToHead(games: Game[], players: Player[]): HeadToHead[] {
+  const rows: HeadToHead[] = []
+  for (const opponent of players) {
+    const vs = games.filter((g) => g.view.opponentId === opponent.id)
+    if (vs.length === 0) continue
+    const outcomes = vs.map((g) => g.view.outcome)
+    rows.push({
+      opponent,
+      played: vs.length,
+      w: outcomes.filter((o) => o === 'W').length,
+      d: outcomes.filter((o) => o === 'D').length,
+      l: outcomes.filter((o) => o === 'L').length,
+      gf: vs.reduce((s, g) => s + g.view.gf, 0),
+      ga: vs.reduce((s, g) => s + g.view.ga, 0),
+      pts: outcomes.reduce((s, o) => s + POINTS[o], 0),
+      form: outcomes.slice(-5),
+      biggestWin: biggestBy(vs, (g) => g.view.gf - g.view.ga),
+      biggestLoss: biggestBy(vs, (g) => g.view.ga - g.view.gf),
+      lastMatch: vs[vs.length - 1].match,
+    })
   }
+  return rows.sort((a, b) => b.played - a.played)
+}
 
-  s.headToHead = [...h2h.values()].sort((a, b) => b.played - a.played)
-  return s
+function seasons(playerId: string, players: Player[], matches: Match[]): SeasonLine[] {
+  const years = [...new Set(matches.map((m) => yearOf(m.played_at)))].sort((a, b) => b - a)
+  const lines: SeasonLine[] = []
+  for (const year of years) {
+    const rows = computeStandings(players, matches.filter((m) => yearOf(m.played_at) === year))
+    const index = rows.findIndex((r) => r.player.id === playerId)
+    const row = rows[index]
+    if (!row || row.played === 0) continue
+    lines.push({ year, rank: index + 1, played: row.played, w: row.w, d: row.d, l: row.l, gf: row.gf, ga: row.ga, pts: row.pts })
+  }
+  return lines
 }

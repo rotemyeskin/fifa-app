@@ -6,6 +6,8 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { PlayerAvatar } from '@/components/common/PlayerAvatar'
 import { computeFunStats, computeTotals, type FunStat, type StatTone } from '@/lib/funStats'
 import { yearOf } from '@/lib/dates'
+import { computeStarBreakdown } from '@/lib/starStats'
+import { StarWinsTable } from './StarWinsTable'
 import type { Match, Player } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +28,7 @@ export function StatsView({ players, matches, year }: { players: Player[]; match
   )
   const stats = useMemo(() => computeFunStats(players, scoped), [players, scoped])
   const totals = useMemo(() => computeTotals(scoped), [scoped])
+  const starBreakdown = useMemo(() => computeStarBreakdown(players, scoped), [players, scoped])
 
   return (
     <div className="space-y-4">
@@ -56,6 +59,8 @@ export function StatsView({ players, matches, year }: { players: Player[]; match
         <Total label="ממוצע" value={totals.avgGoals.toFixed(1)} />
         <Total label="הארכות" value={totals.extraTime} />
       </div>
+
+      <StarWinsTable data={starBreakdown} />
 
       {stats.length === 0 ? (
         <EmptyState emoji="📊" title="עוד אין נתונים" description="שחקו כמה משחקים והסטטיסטיקות יתחילו להופיע" />

@@ -1,5 +1,6 @@
 import { formatShortDay } from './dates'
 import { isDraw, loserOf, sortAsc, viewFor, winnerOf, type PlayerView } from './match'
+import { currentRun, isWin, longestRun } from './streaks'
 import type { Match, Player } from './types'
 import { formatStars } from './utils'
 
@@ -211,18 +212,8 @@ const snob: Generator = (ctx) => {
   }
 }
 
-function longestRun(games: { view: PlayerView }[], outcome: PlayerView['outcome']): number {
-  let best = 0
-  let run = 0
-  for (const { view } of games) {
-    run = view.outcome === outcome ? run + 1 : 0
-    best = Math.max(best, run)
-  }
-  return best
-}
-
 const longestStreak: Generator = (ctx) => {
-  const top = leader(ctx, (g) => longestRun(g, 'W'))
+  const top = leader(ctx, (g) => longestRun(g.map(({ view }) => view.outcome), isWin))
   if (!top || top.score < 2) return null
   return {
     id: 'streak',
@@ -236,11 +227,7 @@ const longestStreak: Generator = (ctx) => {
 }
 
 const onFire: Generator = (ctx) => {
-  const top = leader(ctx, (g) => {
-    let run = 0
-    for (let i = g.length - 1; i >= 0 && g[i].view.outcome === 'W'; i--) run++
-    return run
-  })
+  const top = leader(ctx, (g) => currentRun(g.map(({ view }) => view.outcome), isWin))
   if (!top || top.score < 2) return null
   return {
     id: 'on-fire',
