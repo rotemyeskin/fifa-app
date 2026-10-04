@@ -1,8 +1,8 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { Flag, PartyPopper, RotateCcw } from 'lucide-react'
-import { useState, useTransition } from 'react'
+import { Flag, PartyPopper, RotateCcw, Shuffle } from 'lucide-react'
+import { useEffect, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { abandonSession } from '@/app/actions'
 import { PlayerAvatar } from '@/components/common/PlayerAvatar'
@@ -24,9 +24,14 @@ import {
 import { championOf, computeStandings } from '@/lib/standings'
 import type { Match, Player, Session } from '@/lib/types'
 import { cn, UNKNOWN_PLAYER } from '@/lib/utils'
+import { todayKey } from '@/lib/dates'
+import { drawTeamParams, type TeamParams } from '@/lib/teamParams'
 import { DrawAnimation } from './DrawAnimation'
 import { DrawNotice } from './DrawNotice'
+import { MatchupSummary } from './MatchupSummary'
 import { PairChoices, SessionSetup } from './SessionSetup'
+import { TeamParamsConfig } from './TeamParamsConfig'
+import { loadDrawnParams, saveDrawnParams, useTeamParamsPrefs } from './useTeamParams'
 
 interface Props {
   players: Player[]
@@ -90,12 +95,29 @@ function ActiveSession({
   const [chosen, setChosen] = useState<Pair | null>(openingAvailable ? openingPair : forcedPair)
   const [source, setSource] = useState<Source | null>(openingAvailable ? 'opening' : forcedPair ? 'forced' : null)
   const [logging, setLogging] = useState(false)
+  const [prefs, updatePrefs] = useTeamParamsPrefs()
+  const [params, setParams] = useState<TeamParams | null>(null)
   const rows = computeStandings(participants, roundMatches)
+  const drawKey = (pair: Pair) => `${todayKey()}:${pairKey(...pair)}`
+
+  useEffect(() => {
+    if (chosen) setParams(loadDrawnParams(drawKey(chosen)))
+    // Restore only for the matchup this screen opened with.
+  }, [])
+
+  function setDrawnParams(pair: Pair, next: TeamParams | null) {
+    setParams(next)
+    saveDrawnParams(drawKey(pair), next)
+  }
 
   function choose(pair: Pair | null, how: Source | null) {
     setChosen(pair)
     setSource(how)
+    if (pair && how === 'drawn' && prefs.enabled) setDrawnParams(pair, drawTeamParams(prefs))
+    else setParams(null)
   }
+
+  const activeParams = prefs.enabled ? params : null
 
   function abandon() {
     if (!confirm('לסיים את הסשן עכשיו? המשחקים שנרשמו יישמרו.')) return
@@ -155,6 +177,22 @@ function ActiveSession({
             <span className="text-3xl font-black text-muted">{source === 'forced' ? '🔒' : 'VS'}</span>
             <VsSide player={away} />
           </div>
+          {(activeParams || prefs.enabled) && (
+            <div className="mt-4 space-y-2">
+              {activeParams && <MatchupSummary pair={chosen} params={activeParams} byId={byId} />}
+              {prefs.enabled && !logging && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setDrawnParams(chosen, drawTeamParams(prefs))}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  {activeParams ? 'הגרלת נתוני קבוצות מחדש' : 'הגרלת דירוג וסוג קבוצה'}
+                </Button>
+              )}
+            </div>
+          )}
           {!logging && (
             <div className="mt-5 flex gap-2">
               <Button size="lg" className="flex-1" onClick={() => setLogging(true)}>
@@ -193,8 +231,15 @@ function ActiveSession({
               players={players}
               sessionId={session.id}
               lockPlayers
-              initial={{ home_player_id: chosen[0], away_player_id: chosen[1] }}
-              onSaved={() => setLogging(false)}
+              initial={{
+                home_player_id: chosen[0],
+                away_player_id: chosen[1],
+                ...(activeParams ? { home_stars: activeParams.stars, away_stars: activeParams.stars } : {}),
+              }}
+              onSaved={() => {
+                saveDrawnParams(drawKey(chosen), null)
+                setLogging(false)
+              }}
             />
             <Button variant="ghost" className="mt-2 w-full" onClick={() => setLogging(false)}>
               ביטול
@@ -202,6 +247,8 @@ function ActiveSession({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {remaining.length > 0 && !logging && <TeamParamsConfig prefs={prefs} onChange={updatePrefs} />}
 
       {remaining.length > 1 && !logging && (
         <Card>

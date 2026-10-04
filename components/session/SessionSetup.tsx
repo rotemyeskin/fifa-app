@@ -1,6 +1,6 @@
 'use client'
 
-import { Dices, Hand } from 'lucide-react'
+import { Dices, Hand, Shuffle } from 'lucide-react'
 import { useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { startSession } from '@/app/actions'
@@ -12,8 +12,13 @@ import { Chip } from '@/components/ui/chip'
 import { drawOptions, pairKey, roundState, type Pair } from '@/lib/session'
 import type { Match, Player } from '@/lib/types'
 import { cn, UNKNOWN_PLAYER } from '@/lib/utils'
+import { todayKey } from '@/lib/dates'
+import { drawTeamParams, type TeamParams } from '@/lib/teamParams'
 import { DrawAnimation } from './DrawAnimation'
 import { DrawNotice } from './DrawNotice'
+import { MatchupSummary } from './MatchupSummary'
+import { TeamParamsConfig } from './TeamParamsConfig'
+import { saveDrawnParams, useTeamParamsPrefs } from './useTeamParams'
 
 type Mode = 'random' | 'manual'
 
@@ -25,6 +30,8 @@ export function SessionSetup({ players, todayMatches }: { players: Player[]; tod
   const [manualHome, setManualHome] = useState(players[0]?.id ?? '')
   const [manualAway, setManualAway] = useState(players[1]?.id ?? '')
   const [manualPair, setManualPair] = useState<Pair | null>(null)
+  const [prefs, updatePrefs] = useTeamParamsPrefs()
+  const [params, setParams] = useState<TeamParams | null>(null)
 
   const byId = new Map(players.map((p) => [p.id, p]))
   const participants = players.filter((p) => selected.includes(p.id))
@@ -54,8 +61,14 @@ export function SessionSetup({ players, todayMatches }: { players: Player[]; tod
     }
   }
 
+  function onDrawn(pair: Pair) {
+    setDrawn(pair)
+    setParams(prefs.enabled ? drawTeamParams(prefs) : null)
+  }
+
   function start() {
     if (!first) return
+    saveDrawnParams(`${todayKey()}:${pairKey(...first)}`, prefs.enabled ? params : null)
     startTransition(async () => {
       const res = await startSession({
         playerIds: selected,
@@ -93,6 +106,7 @@ export function SessionSetup({ players, todayMatches }: { players: Player[]; tod
         <Card className="space-y-4">
           <CardTitle className="mb-0">המשחק הראשון</CardTitle>
           <DrawNotice options={options} state={state} players={players} />
+          <TeamParamsConfig prefs={prefs} onChange={updatePrefs} />
 
           {forcedPair ? (
             <ForcedPair pair={forcedPair} byId={byId} />
@@ -121,7 +135,7 @@ export function SessionSetup({ players, todayMatches }: { players: Player[]; tod
               </div>
 
               {mode === 'random' ? (
-                <DrawAnimation players={players} options={options} result={drawn} onResult={setDrawn} />
+                <DrawAnimation players={players} options={options} result={drawn} onResult={onDrawn} />
               ) : manualFree ? (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2">
                   <PlayerPicker players={participants} value={manualHome} onChange={(id) => pickManual('home', id)} disabledId={manualAway} />
@@ -132,6 +146,18 @@ export function SessionSetup({ players, todayMatches }: { players: Player[]; tod
                 <PairChoices pairs={state.remaining} byId={byId} value={manualPair} onChange={setManualPair} />
               )}
             </>
+          )}
+
+          {first && (
+            <div className="space-y-2">
+              <MatchupSummary pair={first} params={prefs.enabled ? params : null} byId={byId} />
+              {prefs.enabled && (
+                <Button variant="outline" className="w-full" onClick={() => setParams(drawTeamParams(prefs))}>
+                  <Shuffle className="h-4 w-4" />
+                  {params ? 'הגרלת נתוני קבוצות מחדש' : 'הגרלת דירוג וסוג קבוצה'}
+                </Button>
+              )}
+            </div>
           )}
         </Card>
       )}
